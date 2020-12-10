@@ -1,0 +1,70 @@
+---
+- name: create checkmk environment on alpine linux
+  hosts: $YOUR_ALPINE_IP
+  remote_user: root
+  vars:
+    - cmk_server: $YOUR_CHECKMK_HOSTNAME
+    - cmk_site: $YOUR_SITE_NAME
+   # - cmk_ip: $YOUR_CHECKMK_SERVER_IP
+
+  tasks:
+  - name: create folder for checkmk agent
+    file:
+      path: "{{ item }}"
+      owner: root
+      group: root
+      mode: 0755
+      recurse: yes
+      state: directory
+    with_items:
+      - /etc/check_mk
+      - /usr/lib/check_mk_agent/plugins
+      - /usr/lib/check_mk_agent/local
+      - /var/lib/check_mk_agent
+
+  - name: install needed packages
+    apk:
+      name: ethtool,socat
+      update_cache: yes
+
+  - name: download check_mk agent from cmk server
+    get_url:
+      url: https://{{cmk_server}}/{{cmk_site}}/check_mk/agents/check_mk_agent.openwrt
+      dest: /usr/local/bin/check_mk_agent
+      force: yes
+      owner: root
+      group: root
+      mode: '0755'
+
+  - name: get waitmax binary from checkmk server
+    get_url:
+      url: https://{{cmk_server}}/{{cmk_site}}/check_mk/agents/waitmax
+      dest: /usr/local/bin/waitmax
+      owner: root
+      group: root
+      mode: '0755'
+
+  - name: template the init script
+    template:
+      src: alpine_init.j2
+      dest: /etc/init.d/checkmk_agent
+      owner: root
+      group: root
+      mode: '0755'
+
+  - name: modify df section
+    lineinfile:
+      path: /usr/local/bin/check_mk_agent
+      regexp: '^df -PTlk'
+      line: df -PTk | egrep -v '(Filesystem|none|udev|tmpfs)'
+
+  - name: modify df section
+    lineinfile:
+      path: /usr/local/bin/check_mk_agent
+      regexp: '^df -PTli'
+      line: df -PTki | egrep -v '(Filesystem|none|udev|tmpfs)'
+  - name: enable autostart and start checkmk_agent
+    service:
+      name: checkmk_agent
+      enabled: yes
+      state: restarted
