@@ -1,0 +1,17 @@
+#!/sbin/openrc-run
+
+name=check_mk_agent
+description="Check_MK Agent on Alpine Linux"
+command="/usr/bin/socat"
+{% if cmk_ip is defined %}
+command_args="-U TCP-LISTEN:6556,fork,reuseaddr,range={{cmk_ip}}/24 EXEC:/usr/local/bin/check_mk_agent"
+{% else %}
+command_args="-U TCP-LISTEN:6556,fork,reuseaddr EXEC:/usr/local/bin/check_mk_agent"
+{% endif %}
+command_user="root"
+pidfile="/run/$RC_SVCNAME.pid"
+command_background="yes"
+
+depend() {
+        need net
+}
