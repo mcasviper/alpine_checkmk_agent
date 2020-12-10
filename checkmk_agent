@@ -1,0 +1,14 @@
+#!/sbin/openrc-run
+# Init script to run CheckMK agent on port 6556 on Alpine Linux
+
+name=check_mk_agent
+description="Check_MK Agent on Alpine Linux"
+command="/usr/bin/socat"
+command_args="-U TCP-LISTEN:6556,fork,reuseaddr EXEC:/usr/local/bin/check_mk_agent"
+command_user="root"
+pidfile="/run/$RC_SVCNAME.pid"
+command_background="yes"
+
+depend() {
+        need net
+}
