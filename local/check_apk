@@ -1,0 +1,11 @@
+#!/bin/ash
+WARN=1
+CRIT=10
+UPDATES=`apk -uU list|wc -l`
+if [[ $UPDATES -ge $CRIT ]]; then
+  echo "2 \"APK Updates\" apk_updates=$UPDATES;$WARN;$CRIT $UPDATES updates pending"
+elif [[ $UPDATES -ge $WARN ]]; then
+  echo "1 \"APK Updates\" apk_updates=$UPDATES;$WARN;$CRIT $UPDATES updates pending"
+else
+  echo "0 \"APK Updates\" apk_updates=$UPDATES;$WARN;$CRIT No updates pending"
+fi
