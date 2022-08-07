@@ -32,7 +32,7 @@ if [ ! -d "/var/lib/check_mk_agent" ]; then
   mkdir "/var/lib/check_mk_agent"
 fi
 
-if [ -f $TMPFILE ]; then
+if [ -f $APK_TMPFILE ]; then
   rm $APK_TMPFILE
 elif [ `find $SECDB_TMPFILE -mmin -${SECDB_CACHE_MINS}` ]; then
   rm $SECDB_TMPFILE
