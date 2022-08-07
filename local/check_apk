@@ -28,6 +28,10 @@ if [ "${CHECK_PACKAGE_SEC}" == "Y" ]; then
     fi
 fi
 
+if [ ! -d "/var/lib/check_mk_agent" ]; then
+  mkdir "/var/lib/check_mk_agent"
+fi
+
 if [ -f $TMPFILE ]; then
   rm $APK_TMPFILE
 elif [ `find $SECDB_TMPFILE -mmin -${SECDB_CACHE_MINS}` ]; then
