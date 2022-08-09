@@ -1,11 +1,99 @@
 #!/bin/ash
+
+# Upgrade thresholds for non-security upgrades:
 WARN=1
 CRIT=10
-UPDATES=`apk -uU list|wc -l`
-if [[ $UPDATES -ge $CRIT ]]; then
-  echo "2 \"APK Updates\" apk_updates=$UPDATES;$WARN;$CRIT $UPDATES updates pending"
+
+# Enable/Disable checking if updates are for security [Y/N]
+# Defaults to "Y", but this can be slow, and also requires curl/jq installed
+# Can be disabled for performance, or check can be cached by placing in
+# /usr/lib/check_mk_agent/local/${CACHE_SECONDS} folder
+CHECK_PACKAGE_SEC=Y
+
+# Alpine Security DB cache interval (minutes) - default 6 hours
+SECDB_CACHE_MINS=3600
+
+IS_BUSYBOX_GREP=`readlink /bin/grep`
+
+if [ "${IS_BUSYBOX_GREP}" == "/bin/busybox" ]; then
+    ALPINE_RELEASE=`cat /etc/alpine-release | grep -o '\d.\d\+'`
+else
+    ALPINE_RELEASE=`cat /etc/alpine-release | grep -o '[0-9].[0-9]\+'`
+fi
+SECDB_URL="https://secdb.alpinelinux.org/v${ALPINE_RELEASE}/main.json"
+SECDB_TMPFILE="/var/lib/check_mk_agent/check_apk-secdb.json"
+APK_TMPFILE="/var/lib/check_mk_agent/check_apk-updates.txt"
+
+if [ "${CHECK_PACKAGE_SEC}" == "Y" ]; then
+    if [ ! `which curl` ]; then
+      echo "3 \"Missing dependencies - please make sure curl is installed\""
+      exit 1
+    elif [ ! `which jq` ]; then
+      echo "3 \"Missing dependencies - please make sure jq is installed\""
+      exit 1
+    fi
+fi
+
+if [ ! -d "/var/lib/check_mk_agent" ]; then
+  mkdir "/var/lib/check_mk_agent"
+fi
+
+if [ -f $APK_TMPFILE ]; then
+  rm $APK_TMPFILE
+elif [ `find $SECDB_TMPFILE -mmin -${SECDB_CACHE_MINS}` ]; then
+  rm $SECDB_TMPFILE
+fi
+
+printf "`apk -uU list | sed 's| .*||g;'`" > $APK_TMPFILE
+
+
+UPDATES=`wc -l $APK_TMPFILE | awk '{print $1}'`
+
+SEC_UPGRADES=0
+SEC_PACKAGES=""
+
+if [ "${CHECK_PACKAGE_SEC}" == "Y" ]; then
+    curl -Ss $SECDB_URL > $SECDB_TMPFILE
+
+    while IFS= read -r line; do
+
+      IS_UPGRADE_SEC=
+
+      if [ "${IS_BUSYBOX_GREP}" == "/bin/busybox" ]; then
+          VERSION=`echo $line | grep -Eo -- '(-(\d([a-z]?)\.?)+(_([a-z]+?[0-9_]+?)?([0-9]+[a-z]+)?)+-r\d+|-(\d([a-z]?)\.?)+-r\d+)' | sed 's|^-||;' `
+      else
+          VERSION=`echo $line | grep -Eo -- '(-([0-9]([a-z]?)\.?)+(_([a-z]+?[0-9_]+?)?([0-9]+[a-z]+)?)+-r[0-9]+|-([0-9]+\.?([a-z]?)\.?)+-r[0-9]+)' | sed 's|^-||;' `
+      fi
+      PACKAGE=`echo $line | sed "s|$VERSION||g; s|-$||;"`
+
+      SEC_LOOKUP="`jq -r --arg PACKAGE "${PACKAGE}" '.packages[] | select(.pkg.name == $PACKAGE)' $SECDB_TMPFILE`"
+      if [ ! "$SEC_LOOKUP" == "null" ]; then
+          SEC_UPDATES="`printf \"${SEC_LOOKUP}\"| jq '.pkg.secfixes' | jq -r 'keys'`"
+          IS_UPDATE_SEC=`echo $SEC_UPDATES | grep "$VERSION"`
+      fi
+
+      if [ ! "$IS_UPDATE_SEC" == "" ]; then
+          SEC_UPGRADES=$(($SEC_UPGRADES + 1))
+          SEC_PACKAGES="$SEC_PACKAGES $line"
+      fi
+
+    done < $APK_TMPFILE
+fi
+
+SEC_PACKAGES="`echo \"${SEC_PACKAGES}\" | sed 's|^ ||g;'`"
+if [ ! "${SEC_PACKAGES}" == "" ]; then
+    NON_SEC_PACKAGES="`grep -v \"$SEC_PACKAGES\" $APK_TMPFILE | tr '\n' ' ' | sed 's| $||g;'`"
+else
+  NON_SEC_PACKAGES="`cat $APK_TMPFILE | tr '\n' ' ' | sed 's| $||g;'`"
+fi
+
+if [[ $SEC_UPGRADES -gt 0 ]]; then
+  echo "2 \"APK Updates\" apk_updates=$UPDATES;apk_sec_updates=$SEC_UPGRADES;$WARN;$CRIT $SEC_UPGRADES security updates pending ($SEC_PACKAGES); $UPDATES normal updates pending ($NON_SEC_PACKAGES)"
+elif [[ $UPDATES -ge $CRIT ]]; then
+  echo "2 \"APK Updates\" apk_updates=$UPDATES;$WARN;$CRIT $UPDATES updates pending ($NON_SEC_PACKAGES)"
 elif [[ $UPDATES -ge $WARN ]]; then
-  echo "1 \"APK Updates\" apk_updates=$UPDATES;$WARN;$CRIT $UPDATES updates pending"
+  echo "1 \"APK Updates\" apk_updates=$UPDATES;$WARN;$CRIT $UPDATES updates pending ($NON_SEC_PACKAGES)"
 else
   echo "0 \"APK Updates\" apk_updates=$UPDATES;$WARN;$CRIT No updates pending"
 fi
+
